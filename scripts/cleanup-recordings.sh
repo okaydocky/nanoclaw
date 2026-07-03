@@ -35,6 +35,7 @@ if [ "$1" != "--confirm" ]; then
 fi
 
 echo "Deleting..."
+FAILED_LIST=$(mktemp)
 echo "$OLD_DIRS" | while read -r dir; do
   [ -z "$dir" ] && continue
   echo "  Removing $dir..."
@@ -42,5 +43,27 @@ echo "$OLD_DIRS" | while read -r dir; do
   # @eaDir metadata, and the now-empty folder itself. The :? guards abort if
   # either variable is empty so the parent dir can never be targeted.
   rm -rf "${RECORDINGS_DIR:?}/${dir:?}"
+  # Guard: confirm the folder is actually gone. Over NFS, if a process holds a
+  # recording file open, the unlink becomes an NFS silly-rename (.nfs*) which
+  # leaves the directory "not empty" and un-removable. The usual holder is the
+  # Colima VM sharing /Volumes/media via virtiofs (its handles persist even
+  # after the Frigate container stops). Record any folder that survived.
+  [ -e "${RECORDINGS_DIR}/${dir}" ] && printf '%s\n' "$dir" >> "$FAILED_LIST"
 done
+
+FAILED_COUNT=$(wc -l < "$FAILED_LIST" | tr -d ' ')
+if [ "$FAILED_COUNT" -gt 0 ]; then
+  echo ""
+  echo "WARNING: $FAILED_COUNT folder(s) could not be fully removed (files deleted"
+  echo "but the directory remains). This is almost always NFS silly-rename caused"
+  echo "by a process holding recording files open over the mount — most often the"
+  echo "Colima VM sharing /Volumes/media via virtiofs."
+  echo "Folders left behind:"
+  sed 's/^/  - /' "$FAILED_LIST"
+  echo "To finish the cleanup, stop the holder then re-run, e.g.:"
+  echo "  colima stop && '$0' --confirm && colima start && docker start frigate"
+  rm -f "$FAILED_LIST"
+  exit 2
+fi
+rm -f "$FAILED_LIST"
 echo "Done."

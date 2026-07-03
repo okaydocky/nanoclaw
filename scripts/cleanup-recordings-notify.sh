@@ -16,8 +16,13 @@ else
   STATUS="❌ Recordings cleanup failed (exit $EXIT_CODE)"
 fi
 
-# Truncate output if too long
-SUMMARY=$(echo "$OUTPUT" | head -20)
+# On success show the head (cutoff + what was removed); on failure show the
+# tail, where the guard's WARNING and remediation hint live.
+if [ $EXIT_CODE -eq 0 ]; then
+  SUMMARY=$(echo "$OUTPUT" | head -20)
+else
+  SUMMARY=$(echo "$OUTPUT" | tail -20)
+fi
 
 MESSAGE="$STATUS
 
